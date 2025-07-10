@@ -1,0 +1,37 @@
+# FastAPI and web framework
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+# LangChain and AI
+langchain==0.3.26
+langchain-community==0.3.26
+langchain-text-splitters>=0.3.0,<0.4.0
+langchain-huggingface>=0.1.0,<0.2.0
+sentence-transformers==5.0.0
+
+# Database
+psycopg[binary,pool]==3.1.13
+psycopg-pool==3.2.0
+pgvector==0.4.1
+sqlalchemy>=2.0.0,<3.0.0
+
+# AWS
+boto3>=1.34.0,<2.0.0
+botocore>=1.34.0,<2.0.0
+
+# PDF processing (for compatibility with embeddings)
+PyMuPDF==1.26.1
+
+# Utilities
+python-dotenv==1.1.1
+python-multipart==0.0.6
+
+# ML dependencies
+torch
+torchvision
+torchaudio
+
+# Optional: for better logging and monitoring
+structlog==23.2.0
