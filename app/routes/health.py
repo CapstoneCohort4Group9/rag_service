@@ -1,11 +1,20 @@
 from fastapi import APIRouter, HTTPException
 import logging
-import os
 
 from app.models import HealthResponse
 from app.bedrock import test_bedrock_connection
 from app.database import test_database_connection
 from app.embeddings import is_embeddings_ready
+
+# Import the startup state functions
+try:
+    from app.startup import are_models_ready, should_perform_warmup
+except ImportError:
+    # Fallback if startup module is not available
+    def are_models_ready():
+        return True
+    def should_perform_warmup():
+        return False
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -39,41 +48,19 @@ async def health_deep():
 
 @router.get("/health")
 async def health():
-    """Simple health check for load balancers - DEBUG VERSION"""
+    """Simple health check for load balancers"""
     try:
-        # Debug information
-        debug_info = {
-            "status": "ok", 
-            "service": "rag-service",
-            "environment": {
-                "AWS_EXECUTION_ENV": os.getenv('AWS_EXECUTION_ENV'),
-                "ECS_CONTAINER_METADATA_URI": os.getenv('ECS_CONTAINER_METADATA_URI'),
-                "ENABLE_MODEL_WARMUP": os.getenv('ENABLE_MODEL_WARMUP')
-            }
-        }
+        # Wait for models to be ready if warmup is required
+        if should_perform_warmup() and not are_models_ready():
+            raise HTTPException(
+                status_code=503, 
+                detail="Service is starting up, models not ready yet..."
+            )
         
-        # Try to get warmup status
-        try:
-            from app.startup import are_models_ready, should_perform_warmup
-            debug_info["warmup_required"] = should_perform_warmup()
-            debug_info["models_ready"] = are_models_ready()
-            
-            # Only block if warmup is required and not ready
-            if should_perform_warmup() and not are_models_ready():
-                debug_info["message"] = "Models still warming up..."
-                return debug_info  # Return 200 with debug info instead of 503
-                
-        except ImportError as e:
-            debug_info["startup_module_error"] = str(e)
-        except Exception as e:
-            debug_info["warmup_check_error"] = str(e)
+        return {"status": "ok", "service": "rag-service"}
         
-        return debug_info
-        
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Health check failed: {str(e)}")
-        return {
-            "status": "error",
-            "service": "rag-service", 
-            "error": str(e)
-        }
+        raise HTTPException(status_code=503, detail="Service temporarily unavailable")
