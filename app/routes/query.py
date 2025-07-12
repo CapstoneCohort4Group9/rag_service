@@ -1,96 +1,96 @@
-from fastapi import APIRouter, HTTPException, status
-from app.models import QueryRequest, QueryResponse, ErrorResponse
-from app.retrieval import retriever
-from app.config import settings
+import json
 import logging
+from fastapi import APIRouter, HTTPException
+from langchain_community.vectorstores.pgvector import PGVector
+
+from app.models import QueryRequest, QueryResponse
+from app.config import BEDROCK_MODEL_ID, COLLECTION_NAME
+from app.bedrock import get_bedrock_client
+from app.database import get_connection_string
+from app.embeddings import get_embeddings
 
 router = APIRouter()
-
 logger = logging.getLogger(__name__)
 
-
-@router.post(
-    "/query",
-    response_model=QueryResponse,
-    summary="Query the RAG system",
-    description="Submit a query to retrieve relevant documents and generate an AI-powered answer",
-    responses={
-        200: {"description": "Successful query response"},
-        400: {"description": "Invalid request", "model": ErrorResponse},
-        500: {"description": "Internal server error", "model": ErrorResponse},
-    }
-)
+@router.post("/query", response_model=QueryResponse)
 async def query_rag(request: QueryRequest):
-    """
-    Query the RAG system with a natural language question.
-    
-    The system will:
-    1. Search for relevant documents in the vector database
-    2. Use the retrieved context to generate an answer using the Bedrock model
-    3. Return the answer along with source documents and confidence score
-    """
+    """Main RAG query endpoint"""
     try:
-        # Validate request
-        if not request.query or len(request.query.strip()) == 0:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Query cannot be empty"
-            )
-        
-        if len(request.query) > 1000:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Query is too long (maximum 1000 characters)"
-            )
-        
-        # Use default values if not provided
-        collection_name = request.collection_name or settings.COLLECTION_NAME
-        max_results = min(request.max_results or settings.TOP_K_RESULTS, 20)  # Cap at 20
-        similarity_threshold = request.similarity_threshold or settings.SIMILARITY_THRESHOLD
+        embeddings = get_embeddings()
+        if not embeddings:
+            raise HTTPException(status_code=503, detail="Embeddings model not available")
         
         logger.info(f"Processing query: {request.query[:100]}...")
         
-        # Process the query
-        response = await retriever.query(
-            query=request.query,
-            collection_name=collection_name,
-            max_results=max_results,
-            similarity_threshold=similarity_threshold
+        # 1. Search similar documents
+        connection_string = get_connection_string()
+        vectorstore = PGVector(
+            collection_name=COLLECTION_NAME,
+            connection_string=connection_string,
+            embedding_function=embeddings
         )
         
-        logger.info(f"Query processed successfully. Found {response.total_sources_found} sources. Confidence: {response.confidence}")
+        docs = vectorstore.similarity_search_with_score(request.query, k=request.max_results)
         
-        return response
+        if not docs:
+            logger.warning("No relevant documents found")
+            return QueryResponse(
+                answer="No relevant information found in the knowledge base.",
+                sources=[],
+                confidence=0.0
+            )
         
-    except HTTPException:
-        raise
+        logger.info(f"Found {len(docs)} relevant documents")
+        
+        # 2. Prepare context
+        context = "\n\n".join([f"Source {i+1}:\n{doc[0].page_content}" for i, doc in enumerate(docs)])
+        
+        # 3. Generate answer with Bedrock
+        bedrock_client = get_bedrock_client()
+        
+        prompt = f"""Context:
+{context}
+
+Question: {request.query}
+
+Answer the question based only on the context above. Be concise and cite sources."""
+        
+        payload = {
+            "prompt": json.dumps({"messages": [{"role": "user", "content": prompt}]}),
+            "max_tokens": 384,
+            "temperature": 0.5
+        }
+        
+        logger.info("Calling Bedrock model...")
+        response = bedrock_client.invoke_model(
+            modelId=BEDROCK_MODEL_ID,
+            body=json.dumps(payload),
+            contentType="application/json"
+        )
+        
+        result = json.loads(response["body"].read())
+        answer = result["outputs"][0]["text"].strip()
+        
+        logger.info("✅ Answer generated successfully")
+        
+        # 4. Format sources
+        sources = []
+        for i, (doc, score) in enumerate(docs):
+            sources.append({
+                "content": doc.page_content[:200] + "..." if len(doc.page_content) > 200 else doc.page_content,
+                "similarity_score": round(1.0 - score, 3),
+                "metadata": doc.metadata,
+                "source_number": i + 1
+            })
+        
+        confidence = sum(1.0 - score for _, score in docs) / len(docs)
+        
+        return QueryResponse(
+            answer=answer,
+            sources=sources,
+            confidence=round(confidence, 3)
+        )
+        
     except Exception as e:
         logger.error(f"Error processing query: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Internal server error: {str(e)}"
-        )
-
-
-@router.get(
-    "/collections",
-    summary="List available collections",
-    description="Get a list of available vector collections in the database"
-)
-async def list_collections():
-    """
-    List all available vector collections in the database.
-    """
-    try:
-        # This is a simple implementation - you might want to query the database
-        # for actual collections in production
-        return {
-            "collections": [settings.COLLECTION_NAME],
-            "default_collection": settings.COLLECTION_NAME
-        }
-    except Exception as e:
-        logger.error(f"Error listing collections: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error retrieving collections: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Error processing query: {str(e)}")

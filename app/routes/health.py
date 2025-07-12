@@ -1,93 +1,40 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter
+
 from app.models import HealthResponse
-from app.database import get_db_connection
-from app.aws_session import get_bedrock_client_with_sts
-import logging
+from app.bedrock import test_bedrock_connection
+from app.database import test_database_connection
+from app.embeddings import is_embeddings_ready
 
 router = APIRouter()
-logger = logging.getLogger(__name__)
 
-
-@router.get(
-    "/health",
-    response_model=HealthResponse,
-    summary="Health check",
-    description="Check the health status of the RAG service and its dependencies"
-)
-async def health_check():
-    """
-    Comprehensive health check for the RAG service.
+@router.get("/health-deep", response_model=HealthResponse)
+async def health_deep():
+    """Comprehensive health check"""
     
-    Checks:
-    - Database connectivity
-    - Bedrock model accessibility
-    - Overall service status
-    """
+    # Test Bedrock
+    bedrock_status = "healthy" if test_bedrock_connection() else "unhealthy"
     
-    database_status = "unknown"
-    bedrock_status = "unknown"
-    overall_status = "unhealthy"
+    # Test Database
+    database_status = "healthy" if test_database_connection() else "unhealthy"
     
-    # Check database connectivity
-    try:
-        async with get_db_connection() as conn:
-            # Simple query to test connection
-            cursor = conn.cursor()
-            await cursor.execute("SELECT 1")
-            result = await cursor.fetchone()
-            if result and result[0] == 1:
-                database_status = "healthy"
-            else:
-                database_status = "unhealthy"
-            await cursor.close()
-    except Exception as e:
-        logger.error(f"Database health check failed: {str(e)}")
-        database_status = "unhealthy"
+    # Test Embeddings
+    embeddings_status = "healthy" if is_embeddings_ready() else "unhealthy"
     
-    # Check Bedrock connectivity
-    try:
-        bedrock_client = get_bedrock_client_with_sts()
-        # Simple test - just check if we can create the client
-        if bedrock_client:
-            bedrock_status = "healthy"
-        else:
-            bedrock_status = "unhealthy"
-    except Exception as e:
-        logger.error(f"Bedrock health check failed: {str(e)}")
-        bedrock_status = "unhealthy"
+    # Overall status
+    overall_status = "healthy" if all([
+        bedrock_status == "healthy",
+        database_status == "healthy", 
+        embeddings_status == "healthy"
+    ]) else "unhealthy"
     
-    # Determine overall status
-    if database_status == "healthy" and bedrock_status == "healthy":
-        overall_status = "healthy"
-    elif database_status == "healthy" or bedrock_status == "healthy":
-        overall_status = "degraded"
-    else:
-        overall_status = "unhealthy"
-    
-    response = HealthResponse(
+    return HealthResponse(
         status=overall_status,
         database_status=database_status,
-        bedrock_status=bedrock_status
+        bedrock_status=bedrock_status,
+        embeddings_status=embeddings_status
     )
-    
-    # Return appropriate HTTP status code
-    if overall_status == "unhealthy":
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=response.dict()
-        )
-    
-    return response
 
-
-@router.get(
-    "/health/simple",
-    summary="Simple health check",
-    description="Simple health endpoint that returns 200 OK if service is running"
-)
-async def simple_health_check():
-    """
-    Simple health check endpoint for load balancers.
-    Returns basic status without checking dependencies.
-    """
+@router.get("/health")
+async def health():
+    """Simple health check for load balancers"""
     return {"status": "ok", "service": "rag-service"}

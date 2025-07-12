@@ -1,99 +1,92 @@
 import os
 import boto3
 import json
-from psycopg_pool import AsyncConnectionPool
-from contextlib import asynccontextmanager
+import logging
 from botocore.exceptions import ClientError
-from app.config import settings, const_fieldname_db_host, const_fieldname_db_port, const_fieldname_db_name, const_fieldname_db_user, const_fieldname_db_pass
-from app.config import db_host, db_port, db_name, db_user, db_pass
+from langchain_community.vectorstores.pgvector import PGVector
 
+from app.config import COLLECTION_NAME
+from app.embeddings import get_embeddings
 
-async def get_db_credentials():
+logger = logging.getLogger(__name__)
+
+def get_db_credentials():
     """Get database credentials from AWS Secrets Manager"""
-    if not settings.DB_SECRET_NAME or not settings.AWS_REGION:
-        # Return None to use environment variables
-        return None
+    secret_name = os.getenv("DB_SECRET_NAME")
+    region_name = os.getenv("AWS_REGION")
+    
+    if not secret_name or not region_name:
+        raise ValueError("DB_SECRET_NAME and AWS_REGION must be set")
+    
+    # Create a Secrets Manager client
+    session = boto3.session.Session()
+    client = session.client(
+        service_name='secretsmanager',
+        region_name=region_name
+    )
     
     try:
-        # Create a Secrets Manager client
-        session = boto3.Session(profile_name=settings.AWS_PROFILE if settings.AWS_PROFILE else None)
-        client = session.client(
-            service_name='secretsmanager',
-            region_name=settings.AWS_REGION
-        )
-        
         get_secret_value_response = client.get_secret_value(
-            SecretId=settings.DB_SECRET_NAME
+            SecretId=secret_name
         )
         secret = json.loads(get_secret_value_response['SecretString'])
         return secret
     except ClientError as e:
+        raise e
+
+def get_connection_string():
+    """Build database connection string dynamically"""
+    # Get credentials from AWS Secrets Manager
+    try:
+        credentials = get_db_credentials()
+        password = credentials.get('db_pass')
+        username = credentials.get('db_user')
+    except Exception as e:
         print(f"Warning: Could not get credentials from AWS Secrets Manager: {e}")
-        return None
+        print("Falling back to environment variables...")
+        username = os.getenv("DB_USER")
+        password = os.getenv("DB_PASS")  # Fallback only
+    
+    # Get other DB config from environment
+    host = os.getenv("DB_HOST")
+    port = os.getenv("DB_PORT", "5432")
+    database = os.getenv("DB_NAME")
+    
+    # Validate required variables
+    if not all([host, database, username, password]):
+        raise ValueError("Missing required database configuration")
+    
+    # Build connection string
+    connection_string = f"postgresql://{username}:{password}@{host}:{port}/{database}"
+    return connection_string
 
+def get_db_config():
+    """Get all database configuration"""
+    return {
+        'host': os.getenv("DB_HOST"),
+        'port': os.getenv("DB_PORT", "5432"),
+        'database': os.getenv("DB_NAME"),
+        'connection_string': get_connection_string()
+    }
 
-async def get_database_dsn():
-    """Build database DSN dynamically"""
+def get_database_connection_string():
+    """Get database connection string (wrapper for compatibility)"""
+    return get_connection_string()
+
+def test_database_connection():
+    """Test database connection"""
     try:
-        credentials = await get_db_credentials()
-        if credentials:
-            password = credentials.get('password', '')
-            username = credentials.get('username', settings.DB_USER)
-        else:
-            # Fallback to environment variables
-            password = os.getenv(const_fieldname_db_pass, db_pass)
-            username = os.getenv(const_fieldname_db_user, db_user)
+        connection_string = get_connection_string()
+        embeddings = get_embeddings()
+        
+        # Simple connection test
+        vectorstore = PGVector(
+            collection_name=COLLECTION_NAME,
+            connection_string=connection_string,
+            embedding_function=embeddings if embeddings else None
+        )
+        logger.info("✅ Database connection successful")
+        return True
     except Exception as e:
-        print(f"Error getting credentials: {e}")
-        password = os.getenv(const_fieldname_db_pass, db_pass)
-        username = os.getenv(const_fieldname_db_user, db_user)
-    
-    # Build DSN using the same pattern as your team's connection.py
-    dsn = (
-        f"host={os.getenv(const_fieldname_db_host, db_host)} "
-        f"port={os.getenv(const_fieldname_db_port, db_port)} "
-        f"dbname={os.getenv(const_fieldname_db_name, db_name)} "
-        f"user={username} "
-        f"password={password}"
-    )
-    
-    return dsn
-
-
-# Global connection pool
-db_pool: AsyncConnectionPool = None
-
-
-async def open_db_pool():
-    """Open the database connection pool"""
-    global db_pool
-    
-    dsn = await get_database_dsn()
-    db_pool = AsyncConnectionPool(conninfo=dsn, max_size=20, min_size=5)
-    
-    if db_pool:
-        await db_pool.open()
-
-
-async def close_db_pool():
-    """Close the database connection pool"""
-    global db_pool
-    if db_pool:
-        await db_pool.close()
-
-
-@asynccontextmanager
-async def get_db_connection():
-    """
-    Acquire a connection from the async pool (matching your team's pattern)
-    """
-    global db_pool
-    try:
-        conn = await db_pool.getconn()
-    except Exception as e:
-        raise Exception(f"Failed to acquire DB connection: {e}")
-    
-    try:
-        yield conn
-    finally:
-        await db_pool.putconn(conn)
+        logger.error(f"❌ Database connection test failed: {e}")
+        return False

@@ -4,7 +4,7 @@ from typing import List, Tuple
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores.pgvector import PGVector
 from app.database import get_db_connection
-from app.aws_session import get_bedrock_client_with_sts
+from app.embeddings import get_bedrock_client_with_sts
 from app.models import SourceDocument, QueryResponse
 from app.config import settings
 
@@ -170,7 +170,7 @@ Please provide a detailed answer based on the context above."""
     async def query(
         self,
         query: str,
-        collection_name: str = None,
+        collection_name: str = settings.COLLECTION_NAME,
         max_results: int = 5,
         similarity_threshold: float = 0.7
     ) -> QueryResponse:
@@ -190,6 +190,7 @@ Please provide a detailed answer based on the context above."""
                 similarity_threshold=similarity_threshold
             )
             
+            print(f"Passed source_doces")
             if not source_docs:
                 # No relevant documents found
                 answer = "I couldn't find any relevant information in the knowledge base to answer your question. Please try rephrasing your query or ask about topics covered in the airline regulations document."
@@ -197,6 +198,8 @@ Please provide a detailed answer based on the context above."""
             else:
                 # Step 2: Generate answer using Bedrock
                 answer, confidence = await self.generate_answer_with_bedrock(query, source_docs)
+            
+            print(f"waiting before procesing_time source_doces")
             
             processing_time = int((time.time() - start_time) * 1000)
             

@@ -142,11 +142,10 @@ curl http://localhost:8080/api/v1/collections
 
 | Variable               | Description                  | Default            |
 | ---------------------- | ---------------------------- | ------------------ |
-| `DB_HOST`              | PostgreSQL host              | `localhost`        |
+| `DB_HOST`              | PostgreSQL host              | `hopjetair-postgres.cepc0wqo22hd.us-east-1.rds.amazonaws.com`        |
 | `DB_PORT`              | PostgreSQL port              | `5432`             |
 | `DB_NAME`              | Database name                | `hopjetairline_db` |
 | `DB_USER`              | Database username            | `hopjetair`        |
-| `DB_PASSWORD`          | Database password            | Required           |
 | `BEDROCK_REGION`       | AWS Bedrock region           | `us-east-1`        |
 | `BEDROCK_MODEL_ID`     | Bedrock model ARN            | Required           |
 | `ASSUME_ROLE_ARN`      | IAM role for Bedrock access  | Required           |

@@ -1,0 +1,139 @@
+name: Build Test and Push RAG Service to ECR
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch: # Allows manual execution
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: rag-service
+  AWS_ROLE_ARN: arn:aws:iam::109038807292:role/GitHubActionsRole
+
+permissions:
+  id-token: write # Required for OIDC
+  contents: read # Required to checkout code
+
+jobs:
+  ecr:
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.build-image.outputs.image }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # Optional: Add tests here when you create them
+      # - name: Install test dependencies
+      #   run: |
+      #     pip install pytest pytest-asyncio httpx
+      #
+      # - name: Run tests
+      #   run: |
+      #     python -m pytest tests/ -v
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          audience: sts.amazonaws.com
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build Docker image
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY .
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY" >> $GITHUB_OUTPUT
+          echo "Built image: $ECR_REGISTRY/$ECR_REPOSITORY"
+
+      - name: Run and test Docker image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          # Test environment variables (mock values for container testing)
+          TEST_DB_HOST: localhost
+          TEST_DB_NAME: test_db
+          TEST_DB_PORT: 5432
+          TEST_DB_USER: test_user
+          TEST_DB_PASS: test_password
+          TEST_BEDROCK_MODEL_ID: arn:aws:bedrock:us-east-1:109038807292:imported-model/test
+          TEST_BEDROCK_REGION: us-east-1
+          TEST_COLLECTION_NAME: test_collection
+        run: |
+          # Run container in detached mode with test environment
+          docker run -d -p 8080:8080 \
+            --name test-container \
+            -e DB_HOST=$TEST_DB_HOST \
+            -e DB_NAME=$TEST_DB_NAME \
+            -e DB_PORT=$TEST_DB_PORT \
+            -e DB_USER=$TEST_DB_USER \
+            -e DB_PASS=$TEST_DB_PASS \
+            -e BEDROCK_MODEL_ID=$TEST_BEDROCK_MODEL_ID \
+            -e BEDROCK_REGION=$TEST_BEDROCK_REGION \
+            -e COLLECTION_NAME=$TEST_COLLECTION_NAME \
+            $ECR_REGISTRY/$ECR_REPOSITORY
+
+          # Wait for container to start and models to load
+          echo "Waiting for container to start..."
+          sleep 90
+
+          # Show container logs for debugging
+          echo "Container logs:"
+          docker logs test-container
+
+          # Test simple health endpoint (should work without external dependencies)
+          echo "Testing simple health endpoint..."
+          docker exec test-container curl -f http://localhost:8080/health || exit 1
+
+          # Test root endpoint
+          echo "Testing root endpoint..."
+          docker exec test-container curl -f http://localhost:8080/ || exit 1
+
+          # Test OpenAPI docs endpoint
+          echo "Testing docs endpoint..."
+          docker exec test-container curl -f http://localhost:8080/docs || exit 1
+
+          # Note: We skip full health and query tests here since they require 
+          # actual AWS credentials and database connections
+
+          echo "✅ Basic container tests passed!"
+
+          # Cleanup
+          docker stop test-container
+          docker rm test-container
+
+      - name: Push image to Amazon ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY
+          echo "Pushed image to ECR: $ECR_REGISTRY/$ECR_REPOSITORY"
+
+      - name: Save image URI as artifact
+        run: |
+          echo "${{ steps.build-image.outputs.image }}" > image-uri.txt
+          echo "Saved image URI to image-uri.txt: $(cat image-uri.txt)"
+          ls -l image-uri.txt
+
+      - name: Upload image URI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-uri
+          path: image-uri.txt
+          retention-days: 7 # Keep for a week for deployment reference
