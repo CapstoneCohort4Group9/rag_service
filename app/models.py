@@ -1,8 +1,9 @@
 from pydantic import BaseModel
+from app.config import TOP_K_RESULTS
 
 class QueryRequest(BaseModel):
     query: str
-    max_results: int = 5
+    max_results: int = TOP_K_RESULTS  # Use config default
 
 class QueryResponse(BaseModel):
     answer: str

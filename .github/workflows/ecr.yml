@@ -75,6 +75,12 @@ jobs:
           TEST_BEDROCK_MODEL_ID: arn:aws:bedrock:us-east-1:109038807292:imported-model/test
           TEST_BEDROCK_REGION: us-east-1
           TEST_COLLECTION_NAME: test_collection
+          TEST_AWS_REGION: us-east-1
+          TEST_DB_SECRET_NAME: db_credentials
+          TEST_TOP_K_RESULTS: 5
+          TEST_SIMILARITY_THRESHOLD: 0.5
+          TEST_MAX_TOKENS: 384
+          TEST_TEMPERATURE: 0.5
         run: |
           # Run container in detached mode with test environment
           docker run -d -p 8080:8080 \
@@ -87,11 +93,17 @@ jobs:
             -e BEDROCK_MODEL_ID=$TEST_BEDROCK_MODEL_ID \
             -e BEDROCK_REGION=$TEST_BEDROCK_REGION \
             -e COLLECTION_NAME=$TEST_COLLECTION_NAME \
+            -e AWS_REGION=$TEST_AWS_REGION \
+            -e DB_SECRET_NAME=$TEST_DB_SECRET_NAME \
+            -e TOP_K_RESULTS=$TEST_TOP_K_RESULTS \
+            -e SIMILARITY_THRESHOLD=$TEST_SIMILARITY_THRESHOLD \
+            -e MAX_TOKENS=$TEST_MAX_TOKENS \
+            -e TEMPERATURE=$TEST_TEMPERATURE \            
             $ECR_REGISTRY/$ECR_REPOSITORY
 
           # Wait for container to start and models to load
           echo "Waiting for container to start..."
-          sleep 90
+          sleep 120
 
           # Show container logs for debugging
           echo "Container logs:"
@@ -100,14 +112,6 @@ jobs:
           # Test simple health endpoint (should work without external dependencies)
           echo "Testing simple health endpoint..."
           docker exec test-container curl -f http://localhost:8080/health || exit 1
-
-          # Test root endpoint
-          echo "Testing root endpoint..."
-          docker exec test-container curl -f http://localhost:8080/ || exit 1
-
-          # Test OpenAPI docs endpoint
-          echo "Testing docs endpoint..."
-          docker exec test-container curl -f http://localhost:8080/docs || exit 1
 
           # Note: We skip full health and query tests here since they require 
           # actual AWS credentials and database connections

@@ -20,3 +20,11 @@ DB_PASS = os.getenv("DB_PASS")
 # AWS Secrets Manager (for production)
 DB_SECRET_NAME = os.getenv("DB_SECRET_NAME")
 AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
+
+# RAG Configuration
+TOP_K_RESULTS = int(os.getenv("TOP_K_RESULTS", "5"))
+SIMILARITY_THRESHOLD = float(os.getenv("SIMILARITY_THRESHOLD", "0.7"))
+
+# Model Configuration
+MAX_TOKENS = int(os.getenv("MAX_TOKENS", "384"))
+TEMPERATURE = float(os.getenv("TEMPERATURE", "0.5"))

@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException
 from langchain_community.vectorstores.pgvector import PGVector
 
 from app.models import QueryRequest, QueryResponse
-from app.config import BEDROCK_MODEL_ID, COLLECTION_NAME
+from app.config import BEDROCK_MODEL_ID, COLLECTION_NAME, MAX_TOKENS, TEMPERATURE, SIMILARITY_THRESHOLD
 from app.bedrock import get_bedrock_client
 from app.database import get_connection_string
 from app.embeddings import get_embeddings
@@ -33,18 +33,27 @@ async def query_rag(request: QueryRequest):
         
         docs = vectorstore.similarity_search_with_score(request.query, k=request.max_results)
         
-        if not docs:
-            logger.warning("No relevant documents found")
+        # Filter documents by similarity threshold
+        filtered_docs = []
+        for doc, score in docs:
+            # Convert distance to similarity (PGVector returns distance, lower is better)
+            similarity_score = 1.0 - score if score <= 1.0 else max(0.0, 2.0 - score)
+            
+            if similarity_score >= SIMILARITY_THRESHOLD:
+                filtered_docs.append((doc, score))
+        
+        if not filtered_docs:
+            logger.warning(f"No documents found above similarity threshold {SIMILARITY_THRESHOLD}")
             return QueryResponse(
-                answer="No relevant information found in the knowledge base.",
+                answer="No relevant information found in the knowledge base that meets the similarity threshold.",
                 sources=[],
                 confidence=0.0
             )
         
-        logger.info(f"Found {len(docs)} relevant documents")
+        logger.info(f"Found {len(filtered_docs)} documents above similarity threshold {SIMILARITY_THRESHOLD}")
         
-        # 2. Prepare context
-        context = "\n\n".join([f"Source {i+1}:\n{doc[0].page_content}" for i, doc in enumerate(docs)])
+        # 2. Prepare context using filtered documents
+        context = "\n\n".join([f"Source {i+1}:\n{doc[0].page_content}" for i, doc in enumerate(filtered_docs)])
         
         # 3. Generate answer with Bedrock
         bedrock_client = get_bedrock_client()
@@ -58,8 +67,8 @@ Answer the question based only on the context above. Be concise and cite sources
         
         payload = {
             "prompt": json.dumps({"messages": [{"role": "user", "content": prompt}]}),
-            "max_tokens": 384,
-            "temperature": 0.5
+            "max_tokens": MAX_TOKENS,  # Use config value
+            "temperature": TEMPERATURE  # Use config value
         }
         
         logger.info("Calling Bedrock model...")
@@ -74,17 +83,21 @@ Answer the question based only on the context above. Be concise and cite sources
         
         logger.info("✅ Answer generated successfully")
         
-        # 4. Format sources
+        # 4. Format sources using filtered documents
         sources = []
-        for i, (doc, score) in enumerate(docs):
+        for i, (doc, score) in enumerate(filtered_docs):
+            # Calculate similarity score for display
+            similarity_score = 1.0 - score if score <= 1.0 else max(0.0, 2.0 - score)
+            
             sources.append({
                 "content": doc.page_content[:200] + "..." if len(doc.page_content) > 200 else doc.page_content,
-                "similarity_score": round(1.0 - score, 3),
+                "similarity_score": round(similarity_score, 3),
                 "metadata": doc.metadata,
                 "source_number": i + 1
             })
         
-        confidence = sum(1.0 - score for _, score in docs) / len(docs)
+        # Calculate confidence based on filtered documents
+        confidence = sum(1.0 - score for _, score in filtered_docs) / len(filtered_docs)
         
         return QueryResponse(
             answer=answer,
