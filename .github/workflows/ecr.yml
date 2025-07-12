@@ -34,15 +34,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # Optional: Add tests here when you create them
-      # - name: Install test dependencies
-      #   run: |
-      #     pip install pytest pytest-asyncio httpx
-      #
-      # - name: Run tests
-      #   run: |
-      #     python -m pytest tests/ -v
-
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -59,14 +50,17 @@ jobs:
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY .
-          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY" >> $GITHUB_OUTPUT
-          echo "Built image: $ECR_REGISTRY/$ECR_REPOSITORY"
+          # Debug: Print registry and repository for verification
+          echo "ECR_REGISTRY: $ECR_REGISTRY"
+          echo "ECR_REPOSITORY: $ECR_REPOSITORY"
+          # Build image with explicit :latest tag
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:latest" >> $GITHUB_OUTPUT
+          echo "Built image: $ECR_REGISTRY/$ECR_REPOSITORY:latest"
 
       - name: Run and test Docker image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          # Test environment variables (mock values for container testing)
           TEST_DB_HOST: localhost
           TEST_DB_NAME: test_db
           TEST_DB_PORT: 5432
@@ -82,7 +76,9 @@ jobs:
           TEST_MAX_TOKENS: 384
           TEST_TEMPERATURE: 0.5
         run: |
-          # Run container in detached mode with test environment
+          # Debug: Print the image reference
+          echo "Running container with image: $ECR_REGISTRY/$ECR_REPOSITORY:latest"
+          # Run container with explicit :latest tag
           docker run -d -p 8080:8080 \
             -e DB_HOST=$TEST_DB_HOST \
             -e DB_NAME=$TEST_DB_NAME \
@@ -97,8 +93,8 @@ jobs:
             -e TOP_K_RESULTS=$TEST_TOP_K_RESULTS \
             -e SIMILARITY_THRESHOLD=$TEST_SIMILARITY_THRESHOLD \
             -e MAX_TOKENS=$TEST_MAX_TOKENS \
-            -e TEMPERATURE=$TEST_TEMPERATURE \            
-            --name test-container $ECR_REGISTRY/$ECR_REPOSITORY
+            -e TEMPERATURE=$TEST_TEMPERATURE \
+            --name test-container $ECR_REGISTRY/$ECR_REPOSITORY:latest
 
           # Wait for container to start and models to load
           echo "Waiting for container to start..."
@@ -108,12 +104,9 @@ jobs:
           echo "Container logs:"
           docker logs test-container
 
-          # Test simple health endpoint (should work without external dependencies)
+          # Test simple health endpoint
           echo "Testing simple health endpoint..."
           docker exec test-container curl -f http://localhost:8080/health || exit 1
-
-          # Note: We skip full health and query tests here since they require 
-          # actual AWS credentials and database connections
 
           echo "✅ Basic container tests passed!"
 
@@ -125,8 +118,8 @@ jobs:
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY
-          echo "Pushed image to ECR: $ECR_REGISTRY/$ECR_REPOSITORY"
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          echo "Pushed image to ECR: $ECR_REGISTRY/$ECR_REPOSITORY:latest"
 
       - name: Save image URI as artifact
         run: |
@@ -139,4 +132,4 @@ jobs:
         with:
           name: image-uri
           path: image-uri.txt
-          retention-days: 1 # Keep for a week for deployment reference
+          retention-days: 1
