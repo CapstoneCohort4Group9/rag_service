@@ -3,5 +3,9 @@ __pycache__/
 *.pyo
 *.pyd
 *.log
-venv/
+_env/
 *.ipynb
+.env
+.env.local
+.env.production
+.env.example
