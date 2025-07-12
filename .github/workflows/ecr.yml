@@ -84,7 +84,6 @@ jobs:
         run: |
           # Run container in detached mode with test environment
           docker run -d -p 8080:8080 \
-            --name test-container \
             -e DB_HOST=$TEST_DB_HOST \
             -e DB_NAME=$TEST_DB_NAME \
             -e DB_PORT=$TEST_DB_PORT \
@@ -99,7 +98,7 @@ jobs:
             -e SIMILARITY_THRESHOLD=$TEST_SIMILARITY_THRESHOLD \
             -e MAX_TOKENS=$TEST_MAX_TOKENS \
             -e TEMPERATURE=$TEST_TEMPERATURE \            
-            $ECR_REGISTRY/$ECR_REPOSITORY
+            --name test-container $ECR_REGISTRY/$ECR_REPOSITORY
 
           # Wait for container to start and models to load
           echo "Waiting for container to start..."
@@ -140,4 +139,4 @@ jobs:
         with:
           name: image-uri
           path: image-uri.txt
-          retention-days: 7 # Keep for a week for deployment reference
+          retention-days: 1 # Keep for a week for deployment reference
