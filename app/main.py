@@ -14,15 +14,6 @@ app = FastAPI(title="RAG Service", version="1.0.0")
 app.include_router(health.router, tags=["health"])
 app.include_router(query.router, tags=["query"])
 
-@app.get("/")
-async def root():
-    """Root endpoint"""
-    return {
-        "message": "RAG Service API",
-        "version": "1.0.0",
-        "docs": "/docs",
-        "health": "/health"
-    }
 
 if __name__ == "__main__":
     import uvicorn
