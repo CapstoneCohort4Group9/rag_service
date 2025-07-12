@@ -48,38 +48,40 @@ async def health_deep():
 
 @router.get("/health")
 async def health():
-    """Resilient health check that handles startup failures gracefully"""
+    """Simple health check for load balancers"""
     try:
-        # Check if we're in an environment that requires warmup
-        warmup_required = should_perform_warmup()
+        # Wait for models to be ready if warmup is required
+        if should_perform_warmup() and not are_models_ready():
+            raise HTTPException(
+                status_code=503, 
+                detail="Service is starting up, models not ready yet..."
+            )
         
-        if warmup_required:
-            # In production, wait for basic components (not necessarily warmup completion)
-            models_ready = are_models_ready()
-            
-            if not models_ready:
-                # Return 503 only if critical components failed to load
-                logger.info("Health check: Basic components still loading...")
-                raise HTTPException(
-                    status_code=503, 
-                    detail="Service is starting up, basic components not ready yet..."
-                )
-        
-        # Return healthy status
-        return {
-            "status": "ok", 
-            "service": "rag-service",
-            "warmup_required": warmup_required,
-            "models_ready": are_models_ready()
-        }
+        return {"status": "ok", "service": "rag-service"}
         
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Health check failed: {str(e)}")
-        # In case of any error, still return healthy to avoid restart loops
+        raise HTTPException(status_code=503, detail="Service temporarily unavailable")
+    
+# Add this temporarily to monitor your fixes
+@router.get("/health-debug")
+async def health_debug():
+    """Debug endpoint to check component status"""
+    try:
+        from app.startup import _embeddings_loaded, _bedrock_initialized, _warmup_completed
+        
         return {
-            "status": "ok", 
+            "status": "ok",
             "service": "rag-service",
-            "note": "Running with degraded functionality"
+            "components": {
+                "embeddings_loaded": _embeddings_loaded,
+                "bedrock_initialized": _bedrock_initialized, 
+                "warmup_completed": _warmup_completed,
+                "warmup_required": should_perform_warmup(),
+                "models_ready": are_models_ready()
+            }
         }
+    except Exception as e:
+        return {"error": str(e)}
