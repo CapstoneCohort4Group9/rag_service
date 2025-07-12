@@ -8,7 +8,7 @@ on:
 
 env:
   AWS_REGION: us-east-1
-  ECR_REPOSITORY: rag-service
+  ECR_REPOSITORY: rag-api
   AWS_ROLE_ARN: arn:aws:iam::109038807292:role/GitHubActionsRole
 
 permissions:
