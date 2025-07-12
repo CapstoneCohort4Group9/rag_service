@@ -12,11 +12,6 @@ from app.config import BEDROCK_MODEL_ID, MAX_TOKENS, TEMPERATURE
 # Configure logging
 logger = logging.getLogger(__name__)
 
-# Global state to track warmup completion
-_warmup_completed = False
-_embeddings_loaded = False
-_bedrock_initialized = False
-
 def should_perform_warmup() -> bool:
     """Determine if warmup should be performed based on environment"""
     # Check for Fargate/ECS environment indicators
@@ -45,27 +40,8 @@ def should_perform_warmup() -> bool:
     logger.info("🔍 Non-production environment detected - skipping model warmup")
     return False
 
-def is_warmup_required() -> bool:
-    """Check if warmup is required based on environment"""
-    return should_perform_warmup()
-
-def is_warmup_completed() -> bool:
-    """Check if warmup has been completed"""
-    global _warmup_completed
-    return _warmup_completed
-
-def are_models_ready() -> bool:
-    """Check if models are ready (either warmup completed or warmup not required)"""
-    if not should_perform_warmup():
-        # If warmup not required, models are considered ready when basic components are loaded
-        return _embeddings_loaded and _bedrock_initialized
-    else:
-        # If warmup is required, models are ready only when warmup is completed
-        return _warmup_completed
-
 async def warmup_bedrock_model():
     """Warmup the Bedrock model to avoid ModelNotReadyException"""
-    global _warmup_completed
     try:
         logger.info("🔥 Warming up Bedrock model...")
         bedrock_client = get_bedrock_client()
@@ -86,7 +62,6 @@ async def warmup_bedrock_model():
                     contentType="application/json"
                 )
                 logger.info(f"✅ Bedrock model warmed up successfully on attempt {attempt + 1}")
-                _warmup_completed = True
                 return True
                 
             except Exception as e:
@@ -98,23 +73,18 @@ async def warmup_bedrock_model():
                         continue
                     else:
                         logger.warning("⚠️ Model still not ready after warmup attempts")
-                        _warmup_completed = False
                         return False
                 else:
                     logger.warning(f"⚠️ Warmup failed with different error: {e}")
-                    _warmup_completed = False
                     return False
         
     except Exception as e:
         logger.warning(f"⚠️ Bedrock warmup failed: {e}")
-        _warmup_completed = False
         return False
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application lifespan - conditionally preload models on startup"""
-    global _embeddings_loaded, _bedrock_initialized
-    
     # Startup - Preload models
     logger.info("🚀 Starting RAG Service...")
     
@@ -127,23 +97,21 @@ async def lifespan(app: FastAPI):
         embeddings = get_embeddings()
         if embeddings:
             logger.info("✅ Embeddings model loaded successfully")
-            _embeddings_loaded = True
         else:
             logger.warning("⚠️ Embeddings model failed to load")
-            _embeddings_loaded = False
         
         # Initialize Bedrock client (lightweight)
         logger.info("🔗 Initializing Bedrock client...")
         try:
             bedrock_client = get_bedrock_client()
             logger.info("✅ Bedrock client initialized successfully")
-            _bedrock_initialized = True
             
             # Conditionally warmup the model
             if perform_warmup:
+                logger.info("🚀 Starting Bedrock model warmup process...")
                 warmup_success = await warmup_bedrock_model()
                 if warmup_success:
-                    logger.info("🔥 Bedrock model is ready for queries")
+                    logger.info("🔥 Bedrock model is ready for queries - warmup completed!")
                 else:
                     logger.warning("⚠️ Bedrock model warmup incomplete - first query may be slower")
             else:
@@ -151,7 +119,6 @@ async def lifespan(app: FastAPI):
                 
         except Exception as e:
             logger.warning(f"⚠️ Bedrock client initialization failed: {e}")
-            _bedrock_initialized = False
         
         if perform_warmup:
             logger.info("🎉 RAG Service startup complete - models preloaded and warmed up!")

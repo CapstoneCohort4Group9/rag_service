@@ -26,13 +26,24 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Copy application code
 COPY app/ ./app/
 
-# Create non-root user for security
-RUN groupadd -r appuser && useradd -r -g appuser appuser
-RUN chown -R appuser:appuser /app
+# Create non-root user for security with proper home directory
+RUN groupadd -r appuser && useradd -r -g appuser -d /home/appuser -m appuser
+
+# Create cache directories with proper permissions
+RUN mkdir -p /home/appuser/.cache && \
+    mkdir -p /home/appuser/.local && \
+    chown -R appuser:appuser /app && \
+    chown -R appuser:appuser /home/appuser
+
+# Set environment variables for HuggingFace cache
+ENV HF_HOME=/home/appuser/.cache/huggingface
+ENV TRANSFORMERS_CACHE=/home/appuser/.cache/huggingface/transformers
+ENV SENTENCE_TRANSFORMERS_HOME=/home/appuser/.cache/sentence_transformers
+
 USER appuser
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=30s --start-period=60s --retries=3 \
+# Simple health check for Docker/ECR - no model warmup required
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
     CMD curl -f http://localhost:8080/health || exit 1
 
 EXPOSE 8080
