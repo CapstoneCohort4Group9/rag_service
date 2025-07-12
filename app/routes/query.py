@@ -27,7 +27,8 @@ async def query_rag(request: QueryRequest):
         vectorstore = PGVector(
             collection_name=COLLECTION_NAME,
             connection_string=connection_string,
-            embedding_function=embeddings
+            embedding_function=embeddings,
+            use_jsonb=True  # Use JSONB instead of JSON for better performance
         )
         
         docs = vectorstore.similarity_search_with_score(request.query, k=request.max_results)

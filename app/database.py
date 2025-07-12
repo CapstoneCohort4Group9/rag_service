@@ -79,14 +79,16 @@ def test_database_connection():
         connection_string = get_connection_string()
         embeddings = get_embeddings()
         
-        # Simple connection test
+        # Simple connection test using PGVector
         vectorstore = PGVector(
             collection_name=COLLECTION_NAME,
             connection_string=connection_string,
-            embedding_function=embeddings if embeddings else None
+            embedding_function=embeddings if embeddings else None,
+            use_jsonb=True  # Use JSONB instead of JSON for better performance
         )
         logger.info("✅ Database connection successful")
         return True
     except Exception as e:
         logger.error(f"❌ Database connection test failed: {e}")
         return False
+
