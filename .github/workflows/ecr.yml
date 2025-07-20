@@ -66,8 +66,6 @@ jobs:
           TEST_DB_PORT: 5432
           TEST_DB_USER: test_user
           TEST_DB_PASS: test_password
-          TEST_BEDROCK_MODEL_ID: arn:aws:bedrock:us-east-1:109038807292:imported-model/test
-          TEST_BEDROCK_REGION: us-east-1
           TEST_COLLECTION_NAME: test_collection
           TEST_AWS_REGION: us-east-1
           TEST_DB_SECRET_NAME: db_credentials
@@ -75,6 +73,7 @@ jobs:
           TEST_SIMILARITY_THRESHOLD: 0.5
           TEST_MAX_TOKENS: 384
           TEST_TEMPERATURE: 0.5
+          TEST_RETURN_COUNT: 3
         run: |
           # Debug: Print the image reference
           echo "Running container with image: $ECR_REGISTRY/$ECR_REPOSITORY:latest"
@@ -85,8 +84,6 @@ jobs:
             -e DB_PORT=$TEST_DB_PORT \
             -e DB_USER=$TEST_DB_USER \
             -e DB_PASS=$TEST_DB_PASS \
-            -e BEDROCK_MODEL_ID=$TEST_BEDROCK_MODEL_ID \S
-            -e BEDROCK_REGION=$TEST_BEDROCK_REGION \
             -e COLLECTION_NAME=$TEST_COLLECTION_NAME \
             -e AWS_REGION=$TEST_AWS_REGION \
             -e DB_SECRET_NAME=$TEST_DB_SECRET_NAME \
@@ -94,6 +91,7 @@ jobs:
             -e SIMILARITY_THRESHOLD=$TEST_SIMILARITY_THRESHOLD \
             -e MAX_TOKENS=$TEST_MAX_TOKENS \
             -e TEMPERATURE=$TEST_TEMPERATURE \
+            -e RETURN_COUNT=$TEST_RETURN_COUNT \
             --name test-container $ECR_REGISTRY/$ECR_REPOSITORY:latest
 
           # Wait for container to start and models to load
