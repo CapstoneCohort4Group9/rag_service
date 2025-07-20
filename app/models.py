@@ -13,5 +13,4 @@ class QueryResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     database_status: str
-    bedrock_status: str
     embeddings_status: str

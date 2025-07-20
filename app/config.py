@@ -4,10 +4,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Configuration from environment variables
-BEDROCK_MODEL_ID = os.getenv("BEDROCK_MODEL_ID")
-BEDROCK_REGION = os.getenv("BEDROCK_REGION", "us-east-1")
+# BEDROCK_MODEL_ID = os.getenv("BEDROCK_MODEL_ID")
+# BEDROCK_REGION = os.getenv("BEDROCK_REGION", "us-east-1")
 AWS_PROFILE = os.getenv("AWS_PROFILE")  # For local development only
-ASSUME_ROLE_ARN = os.getenv("ASSUME_ROLE_ARN")  # For local development only
+# ASSUME_ROLE_ARN = os.getenv("ASSUME_ROLE_ARN")  # For local development only
 COLLECTION_NAME = os.getenv("COLLECTION_NAME", "airline_docs_pg")
 
 # Database configuration
@@ -28,3 +28,5 @@ SIMILARITY_THRESHOLD = float(os.getenv("SIMILARITY_THRESHOLD", "0.7"))
 # Model Configuration
 MAX_TOKENS = int(os.getenv("MAX_TOKENS", "384"))
 TEMPERATURE = float(os.getenv("TEMPERATURE", "0.5"))
+
+RETURN_COUNT = int(os.getenv("RETURN_COUNT", "3")) 

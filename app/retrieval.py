@@ -4,23 +4,21 @@ from typing import List, Tuple, Optional
 from langchain_community.vectorstores.pgvector import PGVector
 from langchain_core.documents import Document
 
-from app.config import BEDROCK_MODEL_ID, COLLECTION_NAME, MAX_TOKENS, TEMPERATURE, SIMILARITY_THRESHOLD
-from app.bedrock import get_bedrock_client
+from app.config import COLLECTION_NAME, SIMILARITY_THRESHOLD, RETURN_COUNT
 from app.database import get_connection_string
 from app.embeddings import get_embeddings
 
 logger = logging.getLogger(__name__)
 
 class RetrievalService:
-    """Service for handling document retrieval and answer generation"""
+    """Service for handling document retrieval"""
     
     def __init__(self):
         self.embeddings = None
         self.vectorstore = None
-        self.bedrock_client = None
     
     def _initialize_components(self):
-        """Initialize embeddings, vectorstore, and bedrock client"""
+        """Initialize embeddings and vectorstore"""
         if not self.embeddings:
             self.embeddings = get_embeddings()
             if not self.embeddings:
@@ -34,9 +32,6 @@ class RetrievalService:
                 embedding_function=self.embeddings,
                 use_jsonb=True  # Use JSONB instead of JSON for better performance
             )
-        
-        if not self.bedrock_client:
-            self.bedrock_client = get_bedrock_client()
     
     def search_similar_documents(self, query: str, max_results: int) -> List[Tuple[Document, float]]:
         """Search for similar documents using vector similarity"""
@@ -59,44 +54,30 @@ class RetrievalService:
         logger.info(f"Found {len(filtered_docs)} documents above similarity threshold {SIMILARITY_THRESHOLD}")
         return filtered_docs
     
-    def generate_answer(self, query: str, documents: List[Tuple[Document, float]]) -> str:
-        """Generate answer using Bedrock model based on retrieved documents"""
-        self._initialize_components()
+    def combine_document_content(self, documents: List[Tuple[Document, float]]) -> str:
+        """Combine page_content from documents with separators"""
+        if not documents:
+            return "No relevant information found in the knowledge base that meets the similarity threshold."
         
-        # Prepare context from documents
-        context = "\n\n".join([f"Source {i+1}:\n{doc[0].page_content}" for i, doc in enumerate(documents)])
+        # Limit the number of documents based on RETURN_COUNT environment variable
+        limited_docs = documents[:RETURN_COUNT]
         
-        # Create prompt
-        prompt = f"""Context:
-{context}
-
-Question: {query}
-
-Answer the question based only on the context above. Be concise and cite sources."""
+        combined_content = []
+        for i, (doc, score) in enumerate(limited_docs):
+            # Add source number and content
+            source_content = f"Source {i+1}:\n{doc.page_content}"
+            combined_content.append(source_content)
         
-        payload = {
-            "prompt": json.dumps({"messages": [{"role": "user", "content": prompt}]}),
-            "max_tokens": MAX_TOKENS,
-            "temperature": TEMPERATURE
-        }
-        
-        logger.info("Calling Bedrock model...")
-        response = self.bedrock_client.invoke_model(
-            modelId=BEDROCK_MODEL_ID,
-            body=json.dumps(payload),
-            contentType="application/json"
-        )
-        
-        result = json.loads(response["body"].read())
-        answer = result["outputs"][0]["text"].strip()
-        
-        logger.info("✅ Answer generated successfully")
-        return answer
+        # Join with double newlines as separators
+        return "\n\n".join(combined_content)
     
     def format_sources(self, documents: List[Tuple[Document, float]]) -> List[dict]:
         """Format document sources for response"""
+        # Limit the number of documents based on RETURN_COUNT environment variable
+        limited_docs = documents[:RETURN_COUNT]
+        
         sources = []
-        for i, (doc, score) in enumerate(documents):
+        for i, (doc, score) in enumerate(limited_docs):
             # Calculate similarity score for display
             similarity_score = 1.0 - score if score <= 1.0 else max(0.0, 2.0 - score)
             
@@ -114,7 +95,10 @@ Answer the question based only on the context above. Be concise and cite sources
         if not documents:
             return 0.0
         
-        confidence = sum(1.0 - score for _, score in documents) / len(documents)
+        # Limit the number of documents based on RETURN_COUNT environment variable
+        limited_docs = documents[:RETURN_COUNT]
+        
+        confidence = sum(1.0 - score for _, score in limited_docs) / len(limited_docs)
         return round(confidence, 3)
     
     async def process_query(self, query: str, max_results: int) -> dict:
@@ -131,8 +115,8 @@ Answer the question based only on the context above. Be concise and cite sources
                     "confidence": 0.0
                 }
             
-            # 2. Generate answer
-            answer = self.generate_answer(query, filtered_docs)
+            # 2. Combine document content (replaces generate_answer)
+            combined_content = self.combine_document_content(filtered_docs)
             
             # 3. Format sources
             sources = self.format_sources(filtered_docs)
@@ -140,8 +124,10 @@ Answer the question based only on the context above. Be concise and cite sources
             # 4. Calculate confidence
             confidence = self.calculate_confidence(filtered_docs)
             
+            logger.info(f"Successfully processed query. Returning {min(len(filtered_docs), RETURN_COUNT)} documents.")
+            
             return {
-                "answer": answer,
+                "answer": combined_content,
                 "sources": sources,
                 "confidence": confidence
             }

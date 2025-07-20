@@ -2,7 +2,6 @@ from fastapi import APIRouter, HTTPException
 import logging
 
 from app.models import HealthResponse
-from app.bedrock import test_bedrock_connection
 from app.database import test_database_connection
 from app.embeddings import is_embeddings_ready
 
@@ -24,7 +23,7 @@ async def health_deep():
     """Comprehensive health check"""
     
     # Test Bedrock
-    bedrock_status = "healthy" if test_bedrock_connection() else "unhealthy"
+    #bedrock_status = "healthy" if test_bedrock_connection() else "unhealthy"
     
     # Test Database
     database_status = "healthy" if test_database_connection() else "unhealthy"
@@ -34,7 +33,6 @@ async def health_deep():
     
     # Overall status
     overall_status = "healthy" if all([
-        bedrock_status == "healthy",
         database_status == "healthy", 
         embeddings_status == "healthy"
     ]) else "unhealthy"
@@ -42,7 +40,6 @@ async def health_deep():
     return HealthResponse(
         status=overall_status,
         database_status=database_status,
-        bedrock_status=bedrock_status,
         embeddings_status=embeddings_status
     )
 
@@ -65,23 +62,3 @@ async def health():
         logger.error(f"Health check failed: {str(e)}")
         raise HTTPException(status_code=503, detail="Service temporarily unavailable")
     
-# Add this temporarily to monitor your fixes
-@router.get("/health-debug")
-async def health_debug():
-    """Debug endpoint to check component status"""
-    try:
-        from app.startup import _embeddings_loaded, _bedrock_initialized, _warmup_completed
-        
-        return {
-            "status": "ok",
-            "service": "rag-service",
-            "components": {
-                "embeddings_loaded": _embeddings_loaded,
-                "bedrock_initialized": _bedrock_initialized, 
-                "warmup_completed": _warmup_completed,
-                "warmup_required": should_perform_warmup(),
-                "models_ready": are_models_ready()
-            }
-        }
-    except Exception as e:
-        return {"error": str(e)}

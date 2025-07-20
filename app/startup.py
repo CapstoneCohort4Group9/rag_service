@@ -6,8 +6,7 @@ import json
 import time
 
 from app.embeddings import get_embeddings
-from app.bedrock import get_bedrock_client
-from app.config import BEDROCK_MODEL_ID, MAX_TOKENS, TEMPERATURE
+from app.config import MAX_TOKENS, TEMPERATURE
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -40,47 +39,47 @@ def should_perform_warmup() -> bool:
     logger.info("🔍 Non-production environment detected - skipping model warmup")
     return False
 
-async def warmup_bedrock_model():
-    """Warmup the Bedrock model to avoid ModelNotReadyException"""
-    try:
-        logger.info("🔥 Warming up Bedrock model...")
-        bedrock_client = get_bedrock_client()
+# async def warmup_bedrock_model():
+#     """Warmup the Bedrock model to avoid ModelNotReadyException"""
+#     try:
+#         logger.info("🔥 Warming up Bedrock model...")
+#         bedrock_client = get_bedrock_client()
         
-        # Send a simple test query to warm up the model
-        warmup_payload = {
-            "prompt": json.dumps({"messages": [{"role": "user", "content": "Hello, this is a warmup request."}]}),
-            "max_tokens": 50,
-            "temperature": 0.5
-        }
+#         # Send a simple test query to warm up the model
+#         warmup_payload = {
+#             "prompt": json.dumps({"messages": [{"role": "user", "content": "Hello, this is a warmup request."}]}),
+#             "max_tokens": 50,
+#             "temperature": 0.5
+#         }
         
-        max_warmup_attempts = 3
-        for attempt in range(max_warmup_attempts):
-            try:
-                response = bedrock_client.invoke_model(
-                    modelId=BEDROCK_MODEL_ID,
-                    body=json.dumps(warmup_payload),
-                    contentType="application/json"
-                )
-                logger.info(f"✅ Bedrock model warmed up successfully on attempt {attempt + 1}")
-                return True
+#         max_warmup_attempts = 3
+#         for attempt in range(max_warmup_attempts):
+#             try:
+#                 response = bedrock_client.invoke_model(
+#                     modelId=BEDROCK_MODEL_ID,
+#                     body=json.dumps(warmup_payload),
+#                     contentType="application/json"
+#                 )
+#                 logger.info(f"✅ Bedrock model warmed up successfully on attempt {attempt + 1}")
+#                 return True
                 
-            except Exception as e:
-                if "ModelNotReadyException" in str(e):
-                    if attempt < max_warmup_attempts - 1:
-                        wait_time = 10 * (attempt + 1)  # 10s, 20s, 30s
-                        logger.warning(f"Model not ready (attempt {attempt + 1}), waiting {wait_time}s...")
-                        time.sleep(wait_time)
-                        continue
-                    else:
-                        logger.warning("⚠️ Model still not ready after warmup attempts")
-                        return False
-                else:
-                    logger.warning(f"⚠️ Warmup failed with different error: {e}")
-                    return False
+#             except Exception as e:
+#                 if "ModelNotReadyException" in str(e):
+#                     if attempt < max_warmup_attempts - 1:
+#                         wait_time = 10 * (attempt + 1)  # 10s, 20s, 30s
+#                         logger.warning(f"Model not ready (attempt {attempt + 1}), waiting {wait_time}s...")
+#                         time.sleep(wait_time)
+#                         continue
+#                     else:
+#                         logger.warning("⚠️ Model still not ready after warmup attempts")
+#                         return False
+#                 else:
+#                     logger.warning(f"⚠️ Warmup failed with different error: {e}")
+#                     return False
         
-    except Exception as e:
-        logger.warning(f"⚠️ Bedrock warmup failed: {e}")
-        return False
+#     except Exception as e:
+#         logger.warning(f"⚠️ Bedrock warmup failed: {e}")
+#         return False
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -101,24 +100,24 @@ async def lifespan(app: FastAPI):
             logger.warning("⚠️ Embeddings model failed to load")
         
         # Initialize Bedrock client (lightweight)
-        logger.info("🔗 Initializing Bedrock client...")
-        try:
-            bedrock_client = get_bedrock_client()
-            logger.info("✅ Bedrock client initialized successfully")
+        # logger.info("🔗 Initializing Bedrock client...")
+        # try:
+        #     bedrock_client = get_bedrock_client()
+        #     logger.info("✅ Bedrock client initialized successfully")
             
-            # Conditionally warmup the model
-            if perform_warmup:
-                logger.info("🚀 Starting Bedrock model warmup process...")
-                warmup_success = await warmup_bedrock_model()
-                if warmup_success:
-                    logger.info("🔥 Bedrock model is ready for queries - warmup completed!")
-                else:
-                    logger.warning("⚠️ Bedrock model warmup incomplete - first query may be slower")
-            else:
-                logger.info("⏭️ Skipping Bedrock model warmup (not in production environment)")
+        #     # Conditionally warmup the model
+        #     if perform_warmup:
+        #         logger.info("🚀 Starting Bedrock model warmup process...")
+        #         warmup_success = await warmup_bedrock_model()
+        #         if warmup_success:
+        #             logger.info("🔥 Bedrock model is ready for queries - warmup completed!")
+        #         else:
+        #             logger.warning("⚠️ Bedrock model warmup incomplete - first query may be slower")
+        #     else:
+        #         logger.info("⏭️ Skipping Bedrock model warmup (not in production environment)")
                 
-        except Exception as e:
-            logger.warning(f"⚠️ Bedrock client initialization failed: {e}")
+        # except Exception as e:
+        #     logger.warning(f"⚠️ Bedrock client initialization failed: {e}")
         
         if perform_warmup:
             logger.info("🎉 RAG Service startup complete - models preloaded and warmed up!")
